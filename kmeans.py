@@ -103,6 +103,14 @@ if __name__ == '__main__':
             user = a
         elif o == "-P":
             password = a
+        elif o == "-p":
+            p = a
+        elif o == "-q":
+            q = a
+        elif o == "-d":
+            d = a
+        elif o == "-k":
+            k = a
         else:
             usage()
 
