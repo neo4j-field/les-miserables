@@ -18,3 +18,5 @@ G&L claim they set `d = 16` and `p = 1, q = 0.5`.
 I'm struggling to reproduce this...
 
 ...more details coming.
+
+[1]: https://arxiv.org/pdf/1607.00653.pdf
