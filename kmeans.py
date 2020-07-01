@@ -41,7 +41,7 @@ def extract_embeddings(driver, p=1.0, q=1.0, d=16):
     print("Generating graph embeddings (p={}, q={}, d={})...".format(p, q, d))
     embeddings = []
     with driver.session() as session:
-        results = session.run(NODE2VEC_CYPHER, p=p, q=q, d=d)
+        results = session.run(NODE2VEC_CYPHER, p=float(p), q=float(q), d=int(d))
         for result in results:
             embeddings.append(result)
     print("...generated {} embeddings".format(len(embeddings)))
@@ -55,7 +55,7 @@ def kmeans(embeddings, k=NUM_CLUSTERS):
     """
     print("Performing K-Means clustering (n_clusters={})...".format(NUM_CLUSTERS))
     X = np.array([e["embedding"] for e in embeddings])
-    kmeans = KMeans(n_clusters=NUM_CLUSTERS).fit(X)
+    kmeans = KMeans(n_clusters=int(k)).fit(X)
     clustering = []
     for idx, cluster in enumerate(kmeans.predict(X)):
         clustering.append({"nodeId": embeddings[idx]["nodeId"], "clusterId": int(cluster)})
