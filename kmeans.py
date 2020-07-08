@@ -22,7 +22,8 @@ CALL gds.alpha.node2vec.stream({
   },
   embeddingSize: $d,
   returnFactor: $p,
-  inOutFactor: $q
+  inOutFactor: $q,
+  walkLength: $w
 }) YIELD nodeId, embedding
 """
 
@@ -42,19 +43,20 @@ def usage():
     print("\t-p RETURN PARAMETER (default: 1.0)")
     print("\t-q IN-OUT PARAMETER (default: 1.0)")
     print("\t-k K-MEANS NUM_CLUSTERS (default: 6)")
+    print("\t-w WALK_LENGTH (default: 10)")
     sys.exit(1)
 
 def extract_embeddings(driver, label=DEFAULT_LABEL, relType=DEFAULT_REL,
-                       p=1.0, q=1.0, d=16):
+                       p=1.0, q=1.0, d=16, w=10):
     """
     Call the GDS neo2vec routine using the given driver and provided params.
     """
-    print("Generating graph embeddings (p={}, q={}, d={}, label:{}, relType:{})"
-          .format(p, q, d, label, relType))
+    print("Generating graph embeddings (p={}, q={}, d={}, w={}, label={}, relType={})"
+          .format(p, q, d, w, label, relType))
     embeddings = []
     with driver.session() as session:
         results = session.run(NODE2VEC_CYPHER, L=label, R=relType,
-                              p=float(p), q=float(q), d=int(d))
+                              p=float(p), q=float(q), d=int(d), w=int(w))
         for result in results:
             embeddings.append(result)
     print("...generated {} embeddings".format(len(embeddings)))
@@ -66,8 +68,8 @@ def kmeans(embeddings, k=NUM_CLUSTERS, clusterParam="clusterId"):
     Given a list of dicts like {"nodeId" 1, "embedding": [1.0, 0.1, ...]},
     generate a list of dicts like {"nodeId": 1, "valueMap": {"clusterId": 2}}
     """
-    print("Performing K-Means clustering (n_clusters={}, clusterParam={})"
-          .format(NUM_CLUSTERS, clusterParam))
+    print("Performing K-Means clustering (k={}, clusterParam={})"
+          .format(k, clusterParam))
     X = np.array([e["embedding"] for e in embeddings])
     kmeans = KMeans(n_clusters=int(k)).fit(X)
     results = []
@@ -96,7 +98,7 @@ def update_clusters(driver, clusterResults):
 if __name__ == '__main__':
     # getopt, because: "POSIX getopt(1) is The Correct Way" ~sircmpwn
     try:
-        opts, args = getopt.getopt(sys.argv[1:], "hA:U:P:C:R:L:p:q:d:k:")
+        opts, args = getopt.getopt(sys.argv[1:], "hA:U:P:C:R:L:p:q:d:k:w:")
     except getopt.GetoptError as err:
         print(err)
         usage()
@@ -111,6 +113,7 @@ if __name__ == '__main__':
     q = 1.0
     d = 16
     k = 6
+    w = 10
 
     for o, a in opts:
         if o == "-h":
@@ -135,13 +138,15 @@ if __name__ == '__main__':
             d = a
         elif o == "-k":
             k = a
+        elif o == "-w":
+            w = a
         else:
             usage()
 
     print("Connecting to uri: {}".format(uri))
     driver = GraphDatabase.driver(uri, auth=(user, password))
     embeddings = extract_embeddings(driver, label=label, relType=relType,
-                                    p=p, q=q, d=d)
+                                    p=p, q=q, d=d, w=w)
     clusters = kmeans(embeddings, k=k, clusterParam=clusterParam)
     update_clusters(driver, clusters)
     driver.close()
