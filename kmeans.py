@@ -4,12 +4,18 @@ from neo4j import GraphDatabase
 from sklearn.cluster import KMeans
 import numpy as np
 
+# Global defaults, some based on our demo and some on the algo defaults.
 DEFAULT_URI = "bolt://localhost:7687"
 DEFAULT_USER = "neo4j"
 DEFAULT_PASS = "password"
 DEFAULT_REL = "UNWEIGHTED_APPEARED_WITH"
 DEFAULT_LABEL = "Character"
-NUM_CLUSTERS=6
+DEFAULT_PROP = "clusterId"
+DEFAULT_P = 1.0
+DEFAULT_Q = 1.0
+DEFAULT_D = 16
+DEFAULT_WALK = 80
+DEFAULT_K=6
 
 NODE2VEC_CYPHER = """
 CALL gds.alpha.node2vec.stream({
@@ -23,7 +29,7 @@ CALL gds.alpha.node2vec.stream({
   embeddingSize: $d,
   returnFactor: $p,
   inOutFactor: $q,
-  walkLength: $w
+  walkLength: $l
 }) YIELD nodeId, embedding
 """
 
@@ -34,48 +40,49 @@ UNWIND $updates AS updateMap
 """
 
 def usage():
-    print("usage:\t kmeans.py [-A BOLT URI] [-U USERNAME (default: neo4j)] [-P PASSWORD (default: password)]")
+    print("usage:\t kmeans.py [-A BOLT URI default: {}] [-U USERNAME (default: {})] [-P PASSWORD (default: {})]"
+          .format(DEFAULT_URI, DEFAULT_USER, DEFAULT_PASS))
     print("supported parameters:")
-    print("\t-R RELATIONSHIP_TYPE (default: 'UNWEIGHTED_APPEARED_WITH'")
-    print("\t-L NODE_LABEL (default: 'Character'")
-    print("\t-C CLUSTER_PROPERTY (default: 'clusterId'")
-    print("\t-d DIMENSIONS (default: 16)")
-    print("\t-p RETURN PARAMETER (default: 1.0)")
-    print("\t-q IN-OUT PARAMETER (default: 1.0)")
-    print("\t-k K-MEANS NUM_CLUSTERS (default: 6)")
-    print("\t-w WALK_LENGTH (default: 10)")
+    print("\t-R RELATIONSHIP_TYPE (default: '{}'".format(DEFAULT_REL))
+    print("\t-L NODE_LABEL (default: '{}'".format(DEFAULT_LABEL))
+    print("\t-C CLUSTER_PROPERTY (default: '{}'".format(DEFAULT_PROP))
+    print("\t-d DIMENSIONS (default: {})".format(DEFAULT_D))
+    print("\t-p RETURN PARAMETER (default: {})".format(DEFAULT_P))
+    print("\t-q IN-OUT PARAMETER (default: {})".format(DEFAULT_Q))
+    print("\t-k K-MEANS NUM_CLUSTERS (default: {})".format(DEFAULT_K))
+    print("\t-l WALK_LENGTH (default: {})".format(DEFAULT_WALK))
     sys.exit(1)
 
 def extract_embeddings(driver, label=DEFAULT_LABEL, relType=DEFAULT_REL,
-                       p=1.0, q=1.0, d=16, w=10):
+                       p=DEFAULT_P, q=DEFAULT_Q, d=DEFAULT_D, l=DEFAULT_WALK):
     """
     Call the GDS neo2vec routine using the given driver and provided params.
     """
-    print("Generating graph embeddings (p={}, q={}, d={}, w={}, label={}, relType={})"
-          .format(p, q, d, w, label, relType))
+    print("Generating graph embeddings (p={}, q={}, d={}, l={}, label={}, relType={})"
+          .format(p, q, d, l, label, relType))
     embeddings = []
     with driver.session() as session:
         results = session.run(NODE2VEC_CYPHER, L=label, R=relType,
-                              p=float(p), q=float(q), d=int(d), w=int(w))
+                              p=float(p), q=float(q), d=int(d), l=int(l))
         for result in results:
             embeddings.append(result)
     print("...generated {} embeddings".format(len(embeddings)))
     return embeddings
 
 
-def kmeans(embeddings, k=NUM_CLUSTERS, clusterParam="clusterId"):
+def kmeans(embeddings, k=DEFAULT_K, clusterProp=DEFAULT_PROP):
     """
     Given a list of dicts like {"nodeId" 1, "embedding": [1.0, 0.1, ...]},
     generate a list of dicts like {"nodeId": 1, "valueMap": {"clusterId": 2}}
     """
-    print("Performing K-Means clustering (k={}, clusterParam={})"
-          .format(k, clusterParam))
+    print("Performing K-Means clustering (k={}, clusterProp='{}')"
+          .format(k, clusterProp))
     X = np.array([e["embedding"] for e in embeddings])
     kmeans = KMeans(n_clusters=int(k)).fit(X)
     results = []
     for idx, cluster in enumerate(kmeans.predict(X)):
         results.append({ "nodeId": embeddings[idx]["nodeId"],
-                         "valueMap": { clusterParam: int(cluster) }})
+                         "valueMap": { clusterProp: int(cluster) }})
     print("...clustering completed.")
     return results
 
@@ -98,7 +105,7 @@ def update_clusters(driver, clusterResults):
 if __name__ == '__main__':
     # getopt, because: "POSIX getopt(1) is The Correct Way" ~sircmpwn
     try:
-        opts, args = getopt.getopt(sys.argv[1:], "hA:U:P:C:R:L:p:q:d:k:w:")
+        opts, args = getopt.getopt(sys.argv[1:], "hA:U:P:C:R:l:L:p:q:d:k:")
     except getopt.GetoptError as err:
         print(err)
         usage()
@@ -108,12 +115,12 @@ if __name__ == '__main__':
     password = DEFAULT_PASS
     relType = DEFAULT_REL
     label = DEFAULT_LABEL
-    clusterParam = "clusterId"
-    p = 1.0
-    q = 1.0
-    d = 16
-    k = 6
-    w = 10
+    clusterProp = DEFAULT_PROP
+    p = DEFAULT_P
+    q = DEFAULT_Q
+    d = DEFAULT_D
+    k = DEFAULT_K
+    l = DEFAULT_WALK
 
     for o, a in opts:
         if o == "-h":
@@ -129,7 +136,7 @@ if __name__ == '__main__':
         elif o == "-L":
             label = a
         elif o == "-C":
-            clusterParam = a
+            clusterProp = a
         elif o == "-p":
             p = a
         elif o == "-q":
@@ -138,15 +145,15 @@ if __name__ == '__main__':
             d = a
         elif o == "-k":
             k = a
-        elif o == "-w":
-            w = a
+        elif o == "-l":
+            l = a
         else:
             usage()
 
     print("Connecting to uri: {}".format(uri))
     driver = GraphDatabase.driver(uri, auth=(user, password))
     embeddings = extract_embeddings(driver, label=label, relType=relType,
-                                    p=p, q=q, d=d, w=w)
-    clusters = kmeans(embeddings, k=k, clusterParam=clusterParam)
+                                    p=p, q=q, d=d, l=l)
+    clusters = kmeans(embeddings, k=k, clusterProp=clusterProp)
     update_clusters(driver, clusters)
     driver.close()
